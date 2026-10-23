@@ -11,6 +11,7 @@ public class AppPrefs {
 
     private static final String KEY_MONITORING_ACTIVE = "monitoring_active";
     private static final String KEY_POPUP_POSITION = "popup_position"; // 0=Inf.Direito, 1=Sup.Direito, 2=Rodape GC, 3=Topo Central
+    private static final String KEY_POPUP_SIZE = "popup_size"; // 0=Compacto (Padrao), 1=Mini, 2=Grande (TV)
     private static final String KEY_POPUP_DURATION_SEC = "popup_duration_sec"; // 15, 25, 35, 45
     private static final String KEY_SOUND_ENABLED = "sound_enabled";
     private static final String KEY_CACHED_JSON = "cached_json";
@@ -52,6 +53,26 @@ public class AppPrefs {
                 return "Topo Central";
             default:
                 return "Canto Inf. Direito";
+        }
+    }
+
+    public static int getPopupSize(Context context) {
+        return get(context).getInt(KEY_POPUP_SIZE, 0);
+    }
+
+    public static void cyclePopupSize(Context context) {
+        int next = (getPopupSize(context) + 1) % 3;
+        get(context).edit().putInt(KEY_POPUP_SIZE, next).apply();
+    }
+
+    public static String getPopupSizeLabel(Context context) {
+        switch (getPopupSize(context)) {
+            case 1:
+                return "Mini (P)";
+            case 2:
+                return "Grande (TV)";
+            default:
+                return "Compacto (M)";
         }
     }
 

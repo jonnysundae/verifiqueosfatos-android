@@ -38,6 +38,7 @@ public class MainActivity extends Activity {
     private LinearLayout permissionBanner;
     private TextView toggleServiceBtn;
     private TextView posSettingBtn;
+    private TextView sizeSettingBtn;
     private TextView durationSettingBtn;
     private TextView soundSettingBtn;
     private LinearLayout cardsContainer;
@@ -333,6 +334,22 @@ public class MainActivity extends Activity {
         );
         addButtonWithMargin(row2, posSettingBtn);
 
+        sizeSettingBtn = createFocusableButton(
+                "Tamanho: " + AppPrefs.getPopupSizeLabel(this),
+                0xFF1F1F1F,
+                0xFF333333,
+                0xFFD4D4D4,
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        AppPrefs.cyclePopupSize(MainActivity.this);
+                        refreshUiState();
+                        sendServiceAction(FactCheckService.ACTION_TEST_NOW);
+                    }
+                }
+        );
+        addButtonWithMargin(row2, sizeSettingBtn);
+
         durationSettingBtn = createFocusableButton(
                 "Tempo na Tela: " + AppPrefs.getPopupDurationSec(this) + "s",
                 0xFF1F1F1F,
@@ -499,6 +516,7 @@ public class MainActivity extends Activity {
         permissionBanner.setVisibility(canOverlay ? View.GONE : View.VISIBLE);
 
         posSettingBtn.setText("Posi\u00e7\u00e3o: " + AppPrefs.getPopupPositionLabel(this));
+        sizeSettingBtn.setText("Tamanho: " + AppPrefs.getPopupSizeLabel(this));
         durationSettingBtn.setText("Tempo na Tela: " + AppPrefs.getPopupDurationSec(this) + "s");
         soundSettingBtn.setText(AppPrefs.isSoundEnabled(this) ? "Som: Ligado \uD83D\uDD14" : "Som: Mudo \uD83D\uDD15");
 
