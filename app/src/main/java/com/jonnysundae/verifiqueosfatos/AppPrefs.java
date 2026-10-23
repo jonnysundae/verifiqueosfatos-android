@@ -10,6 +10,7 @@ public class AppPrefs {
     private static final String PREFS_NAME = "verifique_os_fatos_prefs";
 
     private static final String KEY_MONITORING_ACTIVE = "monitoring_active";
+    private static final String KEY_POPUP_PINNED = "popup_pinned"; // true = Popup Fixo na tela (so atualiza sem sair)
     private static final String KEY_POPUP_POSITION = "popup_position"; // 0=Inf.Direito, 1=Sup.Direito, 2=Rodape GC, 3=Topo Central
     private static final String KEY_POPUP_SIZE = "popup_size"; // 0=Compacto (Padrao), 1=Mini, 2=Grande (TV)
     private static final String KEY_POPUP_DURATION_SEC = "popup_duration_sec"; // 15, 25, 35, 45
@@ -31,6 +32,14 @@ public class AppPrefs {
 
     public static void setMonitoringActive(Context context, boolean active) {
         get(context).edit().putBoolean(KEY_MONITORING_ACTIVE, active).apply();
+    }
+
+    public static boolean isPopupPinned(Context context) {
+        return get(context).getBoolean(KEY_POPUP_PINNED, false);
+    }
+
+    public static void setPopupPinned(Context context, boolean pinned) {
+        get(context).edit().putBoolean(KEY_POPUP_PINNED, pinned).apply();
     }
 
     public static int getPopupPosition(Context context) {

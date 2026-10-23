@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.jonnysundae.verifiqueosfatos"
-    android:versionCode="2"
-    android:versionName="1.1.0">
+    android:versionCode="3"
+    android:versionName="1.2.0">
 
     <uses-sdk
         android:minSdkVersion="23"
         android:targetSdkVersion="34" />
 
-    <!-- Permissoes necessarias para checagem ao vivo e popup em Smart TVs e Celulares -->
+    <!-- Permissoes necessarias para checagem ao vivo, popup e auto-update em Smart TVs e Celulares -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
@@ -17,6 +17,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Compatibilidade total com Smart TVs (Android TV / Google TV / Fire TV) e Celulares -->
     <uses-feature
@@ -65,6 +66,12 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <provider
+            android:name=".ApkContentProvider"
+            android:authorities="com.jonnysundae.verifiqueosfatos.apkprovider"
+            android:exported="false"
+            android:grantUriPermissions="true" />
 
     </application>
 

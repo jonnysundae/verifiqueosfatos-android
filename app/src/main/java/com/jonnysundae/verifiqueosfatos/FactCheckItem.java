@@ -3,20 +3,33 @@ package com.jonnysundae.verifiqueosfatos;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 
 public class FactCheckItem {
     public final int n; // 1 = Lula, 2 = Flavio
     public final int c; // 1 = Verdadeiro, 2 = Falso, 3 = Parcial
-    public final String t; // Declaracao ("Disse que...")
-    public final String v; // Verificacao ("Verificacao...")
+    public final String t; // Declaracao ("Disse que:")
+    public final String v; // Verificacao ("Verificacao:")
+    public final String h; // Horario opcional (ex: "21:14")
+    public final String a; // Assunto/Tema opcional (ex: "Economia")
+    public final String e; // Correcao/Errata opcional ("Correcao:")
+    public final List<String> s; // Fontes opcionais (URLs)
 
-    public FactCheckItem(int n, int c, String t, String v) {
+    public FactCheckItem(int n, int c, String t, String v, String h, String a, String e, List<String> s) {
         this.n = n;
         this.c = c;
         this.t = t != null ? t.trim() : "";
         this.v = v != null ? v.trim() : "";
+        this.h = h != null ? h.trim() : "";
+        this.a = a != null ? a.trim() : "";
+        this.e = e != null ? e.trim() : "";
+        this.s = s != null ? s : new ArrayList<String>();
+    }
+
+    public FactCheckItem(int n, int c, String t, String v) {
+        this(n, c, t, v, "", "", "", null);
     }
 
     public String getCandidateName() {
@@ -54,34 +67,45 @@ public class FactCheckItem {
         }
     }
 
+    // Novas cores solidas de --tone do repositorio original (style.css atualizado)
     public int getStatusColor() {
         switch (c) {
             case 1:
-                return 0xFF16A34A; // Verde (#16A34A)
+                return 0xFF15803D; // Verde solido (#15803D)
             case 2:
-                return 0xFFDC2626; // Vermelho (#DC2626)
+                return 0xFFB91C1C; // Vermelho solido (#B91C1C)
             case 3:
-                return 0xFFF59E0B; // Amarelo/Ambar para destaque em TV (#F59E0B)
+                return 0xFFC2410C; // Laranja/Ferrugem solido (#C2410C)
             default:
-                return 0xFF8E939C;
+                return 0xFF525252;
         }
     }
 
-    public int getStatusBgTint() {
-        switch (c) {
-            case 1:
-                return 0x2616A34A;
-            case 2:
-                return 0x26DC2626;
-            case 3:
-                return 0x26F59E0B;
-            default:
-                return 0x268E939C;
+    public boolean hasMeta() {
+        return !h.isEmpty() || !a.isEmpty();
+    }
+
+    public String getMetaText() {
+        if (!h.isEmpty() && !a.isEmpty()) {
+            return h + "  \u2022  " + a;
         }
+        return !h.isEmpty() ? h : a;
+    }
+
+    public static String extractHostname(String urlStr) {
+        try {
+            URI uri = new URI(urlStr);
+            String host = uri.getHost();
+            if (host != null) {
+                return host.replaceFirst("^www\\.", "");
+            }
+        } catch (Exception ignored) {
+        }
+        return urlStr;
     }
 
     public String getUniqueKey() {
-        return n + "|" + c + "|" + t + "|" + v;
+        return n + "|" + c + "|" + t + "|" + v + "|" + h + "|" + a + "|" + e;
     }
 
     public static List<FactCheckItem> parseJsonArray(String jsonStr) {
@@ -98,8 +122,21 @@ public class FactCheckItem {
                     int c = obj.optInt("c", 1);
                     String t = obj.optString("t", "");
                     String v = obj.optString("v", "");
+                    String h = obj.optString("h", "");
+                    String a = obj.optString("a", "");
+                    String e = obj.optString("e", "");
+                    List<String> sources = new ArrayList<>();
+                    JSONArray sArr = obj.optJSONArray("s");
+                    if (sArr != null) {
+                        for (int j = 0; j < sArr.length(); j++) {
+                            String u = sArr.optString(j, "").trim();
+                            if (u.startsWith("http://") || u.startsWith("https://")) {
+                                sources.add(u);
+                            }
+                        }
+                    }
                     if (!t.isEmpty() || !v.isEmpty()) {
-                        result.add(new FactCheckItem(n, c, t, v));
+                        result.add(new FactCheckItem(n, c, t, v, h, a, e, sources));
                     }
                 }
             }

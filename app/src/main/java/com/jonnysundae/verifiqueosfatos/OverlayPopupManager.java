@@ -46,6 +46,7 @@ public class OverlayPopupManager {
     private final Queue<FactCheckItem> popupQueue = new LinkedList<>();
 
     private View currentOverlayView = null;
+    private String currentDisplayedKey = null;
     private ValueAnimator countdownAnimator = null;
     private ValueAnimator autoScrollAnimator = null;
     private Runnable dismissRunnable = null;
@@ -78,9 +79,18 @@ public class OverlayPopupManager {
                 if (!canDrawOverlays(context)) {
                     Toast.makeText(
                             context,
-                            "[" + item.getCandidateName() + " - " + item.getStatusLabel().toUpperCase() + "] " + item.t,
+                            "[" + item.getCandidateName() + " - " + item.getStatusLabel() + "] " + item.t,
                             Toast.LENGTH_LONG
                     ).show();
+                    return;
+                }
+
+                // Se estiver no modo Popup Fixo, atualiza imediatamente sem fila de fechar
+                if (AppPrefs.isPopupPinned(context)) {
+                    popupQueue.clear();
+                    dismissCurrentOverlay();
+                    popupQueue.offer(item);
+                    showNextFromQueue();
                     return;
                 }
 
@@ -88,6 +98,28 @@ public class OverlayPopupManager {
                 if (currentOverlayView == null) {
                     showNextFromQueue();
                 }
+            }
+        });
+    }
+
+    public void syncPinnedPopup(final FactCheckItem latestOrWaiting) {
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (!AppPrefs.isPopupPinned(context) || !AppPrefs.isMonitoringActive(context)) {
+                    return;
+                }
+                if (!canDrawOverlays(context)) {
+                    return;
+                }
+                String newKey = latestOrWaiting.getUniqueKey();
+                if (currentOverlayView != null && newKey.equals(currentDisplayedKey)) {
+                    return; // Ja esta exibindo exatamente este item fixo
+                }
+                dismissCurrentOverlay();
+                popupQueue.clear();
+                popupQueue.offer(latestOrWaiting);
+                showNextFromQueue();
             }
         });
     }
@@ -137,8 +169,8 @@ public class OverlayPopupManager {
 
             int posMode = AppPrefs.getPopupPosition(context);
             int sizeMode = AppPrefs.getPopupSize(context); // 0=Compacto (M), 1=Mini (P), 2=Grande (TV)
+            final boolean isPinned = AppPrefs.isPopupPinned(context);
 
-            // Escala baseada no modo de tamanho
             int maxWidthDp;
             int padDp;
             int avatarDp;
@@ -151,10 +183,10 @@ public class OverlayPopupManager {
             final int verifMaxLines;
 
             if (sizeMode == 1) {
-                // MINI (P) - Super discreto no canto
+                // MINI (P)
                 maxWidthDp = 240;
                 padDp = 9;
-                avatarDp = 24;
+                avatarDp = 26;
                 nameSp = 13f;
                 badgeSp = 10f;
                 labelSp = 9f;
@@ -163,10 +195,10 @@ public class OverlayPopupManager {
                 quoteMaxLines = 2;
                 verifMaxLines = 2;
             } else if (sizeMode == 2) {
-                // GRANDE (TV) - Para leitura de longe em telas grandes
+                // GRANDE (TV)
                 maxWidthDp = isLandscape ? 380 : 330;
                 padDp = 14;
-                avatarDp = 36;
+                avatarDp = 38;
                 nameSp = 16f;
                 badgeSp = 11.5f;
                 labelSp = 10f;
@@ -175,14 +207,14 @@ public class OverlayPopupManager {
                 quoteMaxLines = 3;
                 verifMaxLines = 4;
             } else {
-                // COMPACTO (M - Padrao) - Equilibrado para Celular e TV sem ocupar a tela
+                // COMPACTO (M - Padrao)
                 maxWidthDp = isLandscape ? 300 : 285;
                 padDp = 11;
-                avatarDp = 28;
+                avatarDp = 30;
                 nameSp = 14f;
-                badgeSp = 10.5f;
+                badgeSp = 11f;
                 labelSp = 9.5f;
-                quoteSp = 12f;
+                quoteSp = 12.5f;
                 verifSp = 12f;
                 quoteMaxLines = 2;
                 verifMaxLines = 3;
@@ -191,13 +223,11 @@ public class OverlayPopupManager {
             int cardWidth;
             if (isLandscape) {
                 if (posMode == 2) {
-                    // Rodape GC TV
                     cardWidth = Math.min((int) (screenW * 0.65f), UiHelper.dp(context, maxWidthDp + 100));
                 } else {
                     cardWidth = Math.min((int) (screenW * 0.42f), UiHelper.dp(context, maxWidthDp));
                 }
             } else {
-                // Celular em retrato: nunca ocupa a largura toda e fica compacto
                 cardWidth = Math.min((int) (screenW * 0.84f), UiHelper.dp(context, maxWidthDp));
             }
 
@@ -215,28 +245,43 @@ public class OverlayPopupManager {
                 gravity = Gravity.BOTTOM | Gravity.END;
             }
 
-            // Card principal compacto (sem ScrollView para nunca esticar no WindowManager)
+            // Novo design do repositorio oficial: card com border-radius 12dp, superficie #171717 e borda #2E2E2E
             final LinearLayout card = new LinearLayout(context);
             card.setOrientation(LinearLayout.VERTICAL);
-            card.setBackground(UiHelper.roundedRect(context, 0xF2141414, 16f, item.getStatusColor(), 1.5f));
+            card.setBackground(UiHelper.roundedRect(context, 0xF5171717, 12f, 0xFF2E2E2E, 1.0f));
             int pad = UiHelper.dp(context, padDp);
             card.setPadding(pad, pad, pad, UiHelper.dp(context, Math.max(8, padDp - 2)));
 
-            // 1. HEADER COMPACTO: Avatar + Nome + Badge + Botao Fechar (X)
+            // Opcional: Horario ("h") e Tema ("a") no topo do card (.meta)
+            if (item.hasMeta()) {
+                TextView metaTv = new TextView(context);
+                metaTv.setText(item.getMetaText());
+                metaTv.setTextColor(0xFFA3A3A3);
+                metaTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, labelSp);
+                metaTv.setTypeface(Typeface.DEFAULT_BOLD);
+                LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                );
+                metaLp.bottomMargin = UiHelper.dp(context, 6);
+                card.addView(metaTv, metaLp);
+            }
+
+            // 1. HEADER: Avatar quadrado arredondado (10px) + Nome + Badge solido + Botao Fechar
             LinearLayout header = new LinearLayout(context);
             header.setOrientation(LinearLayout.HORIZONTAL);
             header.setGravity(Gravity.CENTER_VERTICAL);
 
             int avatarPx = UiHelper.dp(context, avatarDp);
             ImageView avatarView = new ImageView(context);
-            Bitmap circularAvatar = UiHelper.getCircularBitmap(context, item.getCandidateAvatarRes(), avatarPx);
-            if (circularAvatar != null) {
-                avatarView.setImageBitmap(circularAvatar);
+            Bitmap roundedAvatar = UiHelper.getRoundedAvatarBitmap(context, item.getCandidateAvatarRes(), avatarPx, 7f);
+            if (roundedAvatar != null) {
+                avatarView.setImageBitmap(roundedAvatar);
             } else {
                 avatarView.setImageResource(item.getCandidateAvatarRes());
             }
             LinearLayout.LayoutParams avatarLp = new LinearLayout.LayoutParams(avatarPx, avatarPx);
-            avatarLp.rightMargin = UiHelper.dp(context, 8);
+            avatarLp.rightMargin = UiHelper.dp(context, 9);
             header.addView(avatarView, avatarLp);
 
             TextView candidateTv = new TextView(context);
@@ -248,30 +293,17 @@ public class OverlayPopupManager {
             candidateTv.setEllipsize(TextUtils.TruncateAt.END);
             header.addView(candidateTv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-            // Badge (Verdadeiro / Falso / Parcial)
-            LinearLayout badgeLayout = new LinearLayout(context);
-            badgeLayout.setOrientation(LinearLayout.HORIZONTAL);
-            badgeLayout.setGravity(Gravity.CENTER_VERTICAL);
-            badgeLayout.setBackground(UiHelper.roundedRect(context, item.getStatusBgTint(), 99f, item.getStatusColor(), 1f));
-            int badgePadH = UiHelper.dp(context, 8);
-            int badgePadV = UiHelper.dp(context, 3);
-            badgeLayout.setPadding(badgePadH, badgePadV, badgePadH, badgePadV);
-
-            View dotView = new View(context);
-            dotView.setBackground(UiHelper.roundedRect(context, item.getStatusColor(), 99f, 0, 0));
-            int dotSize = UiHelper.dp(context, 6);
-            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dotSize, dotSize);
-            dotLp.rightMargin = UiHelper.dp(context, 5);
-            badgeLayout.addView(dotView, dotLp);
-
-            TextView badgeText = new TextView(context);
-            badgeText.setText(item.getStatusLabel().toUpperCase());
-            badgeText.setTextColor(0xFFFAFAFA);
-            badgeText.setTextSize(TypedValue.COMPLEX_UNIT_SP, badgeSp);
-            badgeText.setTypeface(Typeface.DEFAULT_BOLD);
-            badgeLayout.addView(badgeText);
-
-            header.addView(badgeLayout);
+            // Novo Badge solido (style.css: background: var(--tone), color: #FFFFFF, border-radius: 99px)
+            TextView badgeTv = new TextView(context);
+            badgeTv.setText(item.getStatusLabel());
+            badgeTv.setTextColor(0xFFFFFFFF);
+            badgeTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, badgeSp);
+            badgeTv.setTypeface(Typeface.DEFAULT_BOLD);
+            badgeTv.setBackground(UiHelper.roundedRect(context, item.getStatusColor(), 99f, 0, 0));
+            int badgePadH = UiHelper.dp(context, 10);
+            int badgePadV = UiHelper.dp(context, 4);
+            badgeTv.setPadding(badgePadH, badgePadV, badgePadH, badgePadV);
+            header.addView(badgeTv);
 
             // Botao Fechar (X)
             TextView closeBtn = new TextView(context);
@@ -286,49 +318,73 @@ public class OverlayPopupManager {
                 @Override
                 public void onClick(View v) {
                     dismissCurrentOverlay();
-                    showNextFromQueue();
+                    if (!AppPrefs.isPopupPinned(context)) {
+                        showNextFromQueue();
+                    }
                 }
             });
             header.addView(closeBtn, closeLp);
 
             card.addView(header);
 
-            // 2. BLOCO "DISSE QUE" COMPACTO
-            LinearLayout saidBox = new LinearLayout(context);
-            saidBox.setOrientation(LinearLayout.VERTICAL);
-            saidBox.setBackground(UiHelper.roundedRect(context, 0xFF202020, 10f, 0xFF2E2E2E, 1f));
-            int saidPadH = UiHelper.dp(context, 8);
-            int saidPadV = UiHelper.dp(context, 6);
-            saidBox.setPadding(saidPadH, saidPadV, saidPadH, saidPadV);
-            LinearLayout.LayoutParams saidLp = new LinearLayout.LayoutParams(
+            // 2. BLOCO "DISSE QUE:" (Novo design: label acima + blockquote com border-left 3px solid #404040)
+            TextView saidLabel = new TextView(context);
+            saidLabel.setText("DISSE QUE:");
+            saidLabel.setTextColor(0xFFA3A3A3);
+            saidLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, labelSp);
+            saidLabel.setTypeface(Typeface.DEFAULT_BOLD);
+            LinearLayout.LayoutParams saidLblLp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
             );
-            saidLp.topMargin = UiHelper.dp(context, 7);
-            saidLp.bottomMargin = UiHelper.dp(context, 7);
+            saidLblLp.topMargin = UiHelper.dp(context, 8);
+            saidLblLp.bottomMargin = UiHelper.dp(context, 3);
+            card.addView(saidLabel, saidLblLp);
+
+            LinearLayout saidRow = new LinearLayout(context);
+            saidRow.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout.LayoutParams saidRowLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+            );
+            saidRowLp.bottomMargin = UiHelper.dp(context, 8);
+
+            // Barra vertical esquerda (border-left: 3px solid var(--line2))
+            View quoteBar = new View(context);
+            quoteBar.setBackgroundColor(0xFF404040);
+            LinearLayout.LayoutParams quoteBarLp = new LinearLayout.LayoutParams(
+                    UiHelper.dp(context, 3),
+                    ViewGroup.LayoutParams.MATCH_PARENT
+            );
+            quoteBarLp.rightMargin = UiHelper.dp(context, 10);
+            saidRow.addView(quoteBar, quoteBarLp);
 
             TextView saidText = new TextView(context);
-            saidText.setText("Disse: \u201C" + item.t + "\u201D");
-            saidText.setTextColor(0xFFE5E5E5);
+            saidText.setText("\u201C" + item.t + "\u201D");
+            saidText.setTextColor(0xFFFAFAFA);
             saidText.setTextSize(TypedValue.COMPLEX_UNIT_SP, quoteSp);
-            saidText.setTypeface(Typeface.create(Typeface.SERIF, Typeface.ITALIC));
+            saidText.setTypeface(Typeface.create(Typeface.SERIF, Typeface.NORMAL));
             saidText.setMaxLines(quoteMaxLines);
             saidText.setEllipsize(TextUtils.TruncateAt.END);
-            saidBox.addView(saidText);
+            saidRow.addView(saidText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-            card.addView(saidBox, saidLp);
+            card.addView(saidRow, saidRowLp);
 
-            // 3. BLOCO "VERIFICACAO" COMPACTO COM ALTURA ESTRITAMENTE LIMITADA
+            // 3. BLOCO "VERIFICACAO:"
             TextView verifLabel = new TextView(context);
-            verifLabel.setText("VERIFICA\u00c7\u00c3O");
-            verifLabel.setTextColor(item.getStatusColor());
+            verifLabel.setText("VERIFICA\u00c7\u00c3O:");
+            verifLabel.setTextColor(0xFFA3A3A3);
             verifLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, labelSp);
             verifLabel.setTypeface(Typeface.DEFAULT_BOLD);
             card.addView(verifLabel);
 
             final TextView verifText = new TextView(context);
-            verifText.setText(item.v);
-            verifText.setTextColor(0xFFFAFAFA);
+            String fullVerif = item.v;
+            if (!item.e.isEmpty()) {
+                fullVerif = fullVerif + "\n[Corre\u00e7\u00e3o: " + item.e + "]";
+            }
+            verifText.setText(fullVerif);
+            verifText.setTextColor(0xFFD4D4D4);
             verifText.setTextSize(TypedValue.COMPLEX_UNIT_SP, verifSp);
             verifText.setMaxLines(verifMaxLines);
             verifText.setEllipsize(TextUtils.TruncateAt.END);
@@ -337,7 +393,7 @@ public class OverlayPopupManager {
                     ViewGroup.LayoutParams.WRAP_CONTENT
             );
             verifLp.topMargin = UiHelper.dp(context, 2);
-            verifLp.bottomMargin = UiHelper.dp(context, 8);
+            verifLp.bottomMargin = UiHelper.dp(context, 7);
             card.addView(verifText, verifLp);
 
             // Auto-scroll suave caso o texto tenha mais linhas que o limite compacto
@@ -352,10 +408,14 @@ public class OverlayPopupManager {
                         final int scrollDist = Math.max(0, totalHeight - visibleHeight);
                         if (scrollDist > 0) {
                             int durationSec = AppPrefs.getPopupDurationSec(context);
-                            long scrollMs = Math.max(3500L, (durationSec - 4) * 1000L);
+                            long scrollMs = Math.max(4000L, (durationSec - 4) * 1000L);
                             autoScrollAnimator = ValueAnimator.ofInt(0, scrollDist);
                             autoScrollAnimator.setStartDelay(3000L);
                             autoScrollAnimator.setDuration(scrollMs);
+                            if (isPinned) {
+                                autoScrollAnimator.setRepeatCount(ValueAnimator.INFINITE);
+                                autoScrollAnimator.setRepeatMode(ValueAnimator.REVERSE);
+                            }
                             autoScrollAnimator.setInterpolator(new LinearInterpolator());
                             autoScrollAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
                                 @Override
@@ -369,22 +429,33 @@ public class OverlayPopupManager {
                 }
             });
 
-            // 4. BARRA FINA DE PROGRESSO (COUNTDOWN)
-            FrameLayout progressTrack = new FrameLayout(context);
-            progressTrack.setBackground(UiHelper.roundedRect(context, 0xFF2E2E2E, 3f, 0, 0));
-            LinearLayout.LayoutParams trackLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    UiHelper.dp(context, 3)
-            );
+            // 4. RODAPE DO POPUP: Se Fixo, mostra indicador "FIXO AO VIVO"; se Temporario, mostra barra regressiva
+            final View progressFill;
+            if (isPinned) {
+                progressFill = null;
+                TextView pinnedFooter = new TextView(context);
+                pinnedFooter.setText("\uD83D\uDCCC POPUP FIXO \u2022 ATUALIZA SOZINHO");
+                pinnedFooter.setTextColor(0xFF737373);
+                pinnedFooter.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f);
+                pinnedFooter.setTypeface(Typeface.DEFAULT_BOLD);
+                card.addView(pinnedFooter);
+            } else {
+                FrameLayout progressTrack = new FrameLayout(context);
+                progressTrack.setBackground(UiHelper.roundedRect(context, 0xFF2E2E2E, 3f, 0, 0));
+                LinearLayout.LayoutParams trackLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        UiHelper.dp(context, 3)
+                );
 
-            final View progressFill = new View(context);
-            progressFill.setBackground(UiHelper.roundedRect(context, item.getStatusColor(), 3f, 0, 0));
-            FrameLayout.LayoutParams fillLp = new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    UiHelper.dp(context, 3)
-            );
-            progressTrack.addView(progressFill, fillLp);
-            card.addView(progressTrack, trackLp);
+                progressFill = new View(context);
+                progressFill.setBackground(UiHelper.roundedRect(context, item.getStatusColor(), 3f, 0, 0));
+                FrameLayout.LayoutParams fillLp = new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        UiHelper.dp(context, 3)
+                );
+                progressTrack.addView(progressFill, fillLp);
+                card.addView(progressTrack, trackLp);
+            }
 
             int overlayType;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -393,9 +464,9 @@ public class OverlayPopupManager {
                 overlayType = WindowManager.LayoutParams.TYPE_PHONE;
             }
 
-            // Medir altura exata do card antes de adicionar na janela para nunca ocupar a tela inteira!
+            // Medir altura exata do card antes de adicionar na janela
             int widthSpec = View.MeasureSpec.makeMeasureSpec(cardWidth, View.MeasureSpec.EXACTLY);
-            int maxAllowedHeight = Math.min((int) (screenH * 0.42f), UiHelper.dp(context, 220));
+            int maxAllowedHeight = Math.min((int) (screenH * 0.44f), UiHelper.dp(context, 230));
             int heightSpec = View.MeasureSpec.makeMeasureSpec(maxAllowedHeight, View.MeasureSpec.AT_MOST);
             card.measure(widthSpec, heightSpec);
             int measuredHeight = card.getMeasuredHeight();
@@ -413,47 +484,50 @@ public class OverlayPopupManager {
             wmParams.x = marginX;
             wmParams.y = marginY;
 
-            // Animacao de entrada suave
             card.setAlpha(0f);
-            card.setTranslationY(UiHelper.dp(context, 16));
+            card.setTranslationY(UiHelper.dp(context, 12));
             windowManager.addView(card, wmParams);
             currentOverlayView = card;
+            currentDisplayedKey = item.getUniqueKey();
 
             card.animate()
                     .alpha(1f)
                     .translationY(0f)
-                    .setDuration(260L)
+                    .setDuration(240L)
                     .setInterpolator(new DecelerateInterpolator())
                     .start();
 
-            int durationSec = AppPrefs.getPopupDurationSec(context);
-            long durationMs = durationSec * 1000L;
+            if (!isPinned && progressFill != null) {
+                int durationSec = AppPrefs.getPopupDurationSec(context);
+                long durationMs = durationSec * 1000L;
 
-            final int fullBarWidth = cardWidth - (pad * 2);
-            countdownAnimator = ValueAnimator.ofInt(fullBarWidth, 0);
-            countdownAnimator.setDuration(durationMs);
-            countdownAnimator.setInterpolator(new LinearInterpolator());
-            countdownAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-                @Override
-                public void onAnimationUpdate(ValueAnimator animation) {
-                    ViewGroup.LayoutParams lp = progressFill.getLayoutParams();
-                    lp.width = (Integer) animation.getAnimatedValue();
-                    progressFill.setLayoutParams(lp);
-                }
-            });
-            countdownAnimator.start();
+                final int fullBarWidth = cardWidth - (pad * 2);
+                countdownAnimator = ValueAnimator.ofInt(fullBarWidth, 0);
+                countdownAnimator.setDuration(durationMs);
+                countdownAnimator.setInterpolator(new LinearInterpolator());
+                countdownAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                    @Override
+                    public void onAnimationUpdate(ValueAnimator animation) {
+                        ViewGroup.LayoutParams lp = progressFill.getLayoutParams();
+                        lp.width = (Integer) animation.getAnimatedValue();
+                        progressFill.setLayoutParams(lp);
+                    }
+                });
+                countdownAnimator.start();
 
-            dismissRunnable = new Runnable() {
-                @Override
-                public void run() {
-                    dismissCurrentOverlay();
-                    showNextFromQueue();
-                }
-            };
-            mainHandler.postDelayed(dismissRunnable, durationMs);
+                dismissRunnable = new Runnable() {
+                    @Override
+                    public void run() {
+                        dismissCurrentOverlay();
+                        showNextFromQueue();
+                    }
+                };
+                mainHandler.postDelayed(dismissRunnable, durationMs);
+            }
 
         } catch (Exception e) {
             currentOverlayView = null;
+            currentDisplayedKey = null;
         }
     }
 
@@ -476,6 +550,7 @@ public class OverlayPopupManager {
             } catch (Exception ignored) {
             }
             currentOverlayView = null;
+            currentDisplayedKey = null;
         }
     }
 

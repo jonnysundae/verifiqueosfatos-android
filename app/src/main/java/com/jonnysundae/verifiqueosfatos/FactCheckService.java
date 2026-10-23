@@ -35,6 +35,7 @@ public class FactCheckService extends Service {
     public static final String ACTION_FORCE_CHECK = "com.jonnysundae.verifiqueosfatos.ACTION_FORCE_CHECK";
     public static final String ACTION_TEST_NOW = "com.jonnysundae.verifiqueosfatos.ACTION_TEST_NOW";
     public static final String ACTION_TEST_DELAYED = "com.jonnysundae.verifiqueosfatos.ACTION_TEST_DELAYED";
+    public static final String ACTION_SYNC_PINNED = "com.jonnysundae.verifiqueosfatos.ACTION_SYNC_PINNED";
 
     public static final String ACTION_UI_UPDATE = "com.jonnysundae.verifiqueosfatos.ACTION_UI_UPDATE";
 
@@ -53,8 +54,8 @@ public class FactCheckService extends Service {
         public void run() {
             if (!isRunning) return;
             performNetworkCheck(false);
-            long jitterMs = (System.currentTimeMillis() / 1000L) % 10L * 1000L;
-            mainHandler.postDelayed(this, POLL_INTERVAL_MS + Math.min(jitterMs, 5000L));
+            long jitterMs = random.nextInt(5000);
+            mainHandler.postDelayed(this, POLL_INTERVAL_MS + jitterMs);
         }
     };
 
@@ -90,6 +91,12 @@ public class FactCheckService extends Service {
                     triggerDemoPopup();
                 }
             }, 5000L);
+        } else if (ACTION_SYNC_PINNED.equals(action)) {
+            if (AppPrefs.isPopupPinned(this)) {
+                syncPinnedOverlayWithCurrentData();
+            } else {
+                OverlayPopupManager.getInstance(this).dismissCurrentOverlay();
+            }
         } else if (ACTION_FORCE_CHECK.equals(action)) {
             performNetworkCheck(true);
         }
@@ -99,10 +106,33 @@ public class FactCheckService extends Service {
             AppPrefs.setMonitoringActive(this, true);
             mainHandler.removeCallbacks(pollRunnable);
             mainHandler.post(pollRunnable);
+            if (AppPrefs.isPopupPinned(this)) {
+                syncPinnedOverlayWithCurrentData();
+            }
             notifyUiUpdate();
         }
 
         return START_STICKY;
+    }
+
+    private void syncPinnedOverlayWithCurrentData() {
+        List<FactCheckItem> cached = FactCheckItem.parseJsonArray(AppPrefs.getCachedJson(this));
+        if (!cached.isEmpty()) {
+            FactCheckItem latest = cached.get(cached.size() - 1);
+            OverlayPopupManager.getInstance(this).syncPinnedPopup(latest);
+        } else {
+            FactCheckItem waitingItem = new FactCheckItem(
+                    1,
+                    3,
+                    "Aguardando novas falas no debate ao vivo...",
+                    "Modo Popup Fixo ativo! Assim que entrar uma checagem em verifiqueosfatos.com, este card atualizar\u00e1 sozinho sem sair da tela.",
+                    "AO VIVO",
+                    "Monitorando",
+                    "",
+                    null
+            );
+            OverlayPopupManager.getInstance(this).syncPinnedPopup(waitingItem);
+        }
     }
 
     private void triggerDemoPopup() {
@@ -117,8 +147,12 @@ public class FactCheckService extends Service {
             demoItem = new FactCheckItem(
                     cand,
                     status,
-                    "Declara\u00e7\u00e3o de teste para validar a exibi\u00e7\u00e3o do popup ao vivo na sua Smart TV ou celular.",
-                    "Este \u00e9 um card de demonstra\u00e7\u00e3o do Verifique os Fatos. Quando entrar uma nova checagem em verifiqueosfatos.com/posts.json, ela aparecer\u00e1 automaticamente aqui sobre o seu v\u00eddeo!"
+                    "Declara\u00e7\u00e3o de exemplo para testar o novo design compacto na sua Smart TV ou celular.",
+                    "Verifica\u00e7\u00e3o com fontes p\u00fablicas e confi\u00e1veis. Quando entrar uma checagem real em posts.json, ela aparecer\u00e1 aqui!",
+                    "21:30",
+                    "Debate Ao Vivo",
+                    "",
+                    null
             );
         }
         OverlayPopupManager.getInstance(this).showImmediatePopup(demoItem);
@@ -130,8 +164,7 @@ public class FactCheckService extends Service {
             public void run() {
                 HttpURLConnection conn = null;
                 try {
-                    String cacheBuster = generateAlphanumeric(6);
-                    String urlStr = AppPrefs.DEFAULT_POSTS_URL + "?v=" + cacheBuster;
+                    String urlStr = AppPrefs.DEFAULT_POSTS_URL + "?v=" + System.currentTimeMillis();
                     URL url = new URL(urlStr);
                     conn = (HttpURLConnection) url.openConnection();
                     conn.setRequestMethod("GET");
@@ -140,7 +173,7 @@ public class FactCheckService extends Service {
                     conn.setUseCaches(false);
                     conn.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate");
                     conn.setRequestProperty("Pragma", "no-cache");
-                    conn.setRequestProperty("User-Agent", "VerifiqueOsFatos-AndroidTV/1.0");
+                    conn.setRequestProperty("User-Agent", "VerifiqueOsFatos-AndroidTV/1.2");
 
                     int code = conn.getResponseCode();
                     if (code == HttpURLConnection.HTTP_OK) {
@@ -180,6 +213,9 @@ public class FactCheckService extends Service {
         if (json.startsWith("[") && items.isEmpty()) {
             AppPrefs.setCachedJson(this, "[]");
             AppPrefs.resetSeenKeys(this);
+            if (AppPrefs.isPopupPinned(this)) {
+                syncPinnedOverlayWithCurrentData();
+            }
             return;
         }
 
@@ -193,7 +229,6 @@ public class FactCheckService extends Service {
         Set<String> seenKeys = AppPrefs.getSeenKeys(this);
 
         if (!hadInitialized) {
-            // Primeira sincronizacao: salva todos os atuais como vistos e mostra apenas o ultimo card
             for (FactCheckItem item : items) {
                 seenKeys.add(item.getUniqueKey());
             }
@@ -218,16 +253,10 @@ public class FactCheckService extends Service {
         } else if (showLatestIfNoNew) {
             FactCheckItem latest = items.get(items.size() - 1);
             OverlayPopupManager.getInstance(this).showImmediatePopup(latest);
+        } else if (AppPrefs.isPopupPinned(this)) {
+            FactCheckItem latest = items.get(items.size() - 1);
+            OverlayPopupManager.getInstance(this).syncPinnedPopup(latest);
         }
-    }
-
-    private String generateAlphanumeric(int length) {
-        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        StringBuilder sb = new StringBuilder(length);
-        for (int i = 0; i < length; i++) {
-            sb.append(chars.charAt(random.nextInt(chars.length())));
-        }
-        return sb.toString();
     }
 
     private void startInForeground() {

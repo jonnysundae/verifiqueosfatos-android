@@ -6,7 +6,9 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.BitmapShader;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -37,6 +39,16 @@ public class UiHelper {
         return gd;
     }
 
+    public static GradientDrawable thermoGradientBar(Context context) {
+        GradientDrawable gd = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{0xFFB91C1C, 0xFFEAB308, 0xFF15803D}
+        );
+        gd.setShape(GradientDrawable.RECTANGLE);
+        gd.setCornerRadius(dp(context, 99f));
+        return gd;
+    }
+
     public static Drawable focusableButtonDrawable(Context context, int normalBg, int focusedBg, int strokeNormal, int strokeFocused, float radiusDp) {
         StateListDrawable sld = new StateListDrawable();
 
@@ -55,7 +67,8 @@ public class UiHelper {
         return sld;
     }
 
-    public static Bitmap getCircularBitmap(Context context, int drawableResId, int sizePx) {
+    // Novo estilo de avatar quadrado com cantos arredondados (border-radius: 10px do novo style.css)
+    public static Bitmap getRoundedAvatarBitmap(Context context, int drawableResId, int sizePx, float cornerRadiusDp) {
         try {
             Bitmap src = BitmapFactory.decodeResource(context.getResources(), drawableResId);
             if (src == null) return null;
@@ -68,15 +81,9 @@ public class UiHelper {
             BitmapShader shader = new BitmapShader(scaled, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
             paint.setShader(shader);
 
-            float r = sizePx / 2f;
-            canvas.drawCircle(r, r, r, paint);
-
-            // Borda sutil circular
-            Paint borderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            borderPaint.setStyle(Paint.Style.STROKE);
-            borderPaint.setColor(0xFF404040);
-            borderPaint.setStrokeWidth(Math.max(2f, sizePx * 0.03f));
-            canvas.drawCircle(r, r, r - borderPaint.getStrokeWidth() / 2f, borderPaint);
+            float radiusPx = dp(context, cornerRadiusDp);
+            RectF rect = new RectF(0, 0, sizePx, sizePx);
+            canvas.drawRoundRect(rect, radiusPx, radiusPx, paint);
 
             return output;
         } catch (Exception e) {
